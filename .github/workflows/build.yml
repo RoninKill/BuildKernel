@@ -1,4 +1,4 @@
-name: Build Ronin Kernel GKI 12 (5.10) KSU-Next + SUSFS
+name: RONIN KERNEL GKI android12-5.10 KSU-Next + SUSFS
 
 on:
   workflow_dispatch:
@@ -67,13 +67,13 @@ jobs:
         run: |
           cd kernel_workspace
           
-          # Setup script KSU-Next umumnya membuat folder 'KernelSU-Next' (bukan 'KernelSU')
-          # Salin patch SUSFS ke dalam direktori KernelSU-Next
+          # Memastikan patch disalin ke dalam folder KernelSU-Next
           cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU-Next/
           
           cd KernelSU-Next
-          patch -p1 < 10_enable_susfs_for_ksu.patch || { echo "Gagal patch KernelSU-Next"; exit 1; }
-          echo "Patch KernelSU-Next untuk SUSFS Berhasil!"
+          # Mengeksekusi patch di dalam direktori KernelSU-Next
+          patch -p1 < 10_enable_susfs_for_ksu.patch || { echo "Gagal melakukan patch pada KernelSU-Next"; exit 1; }
+          echo "✅ Patch KernelSU-Next Berhasil!"
 
       - name: 🛠️ Patch SUSFS ke Kernel 5.10
         run: |
