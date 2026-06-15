@@ -1,0 +1,141 @@
+name: Build Ronin Kernel GKI 12 (5.10) KSU-Next + SUSFS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      # Langkah 1: Memaksimalkan penyimpanan server (Dioptimalkan)
+      - name: Maximize Build Space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 2048 # Diperkecil agar sisa space untuk build lebih besar
+          swap-size-mb: 4096   # Diperkecil menjadi 4GB (sudah cukup untuk Thin-LTO)
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'       # TAMBAHAN: Hapus CodeQL untuk extra space
+          remove-docker-images: 'true' # TAMBAHAN: Hapus Docker Images untuk extra space
+
+      # Langkah 2: Instalasi package pendukung di server
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git curl make gcc clang bc libssl-dev flex bison libelf-dev lld python3 zip
+          mkdir -p ~/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          echo "~/bin" >> $GITHUB_PATH
+
+      # Langkah 3: Konfigurasi Git
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+
+      # Langkah 4: Sinkronisasi Source Code Kernel GKI + Pembersihan .repo (KUNCI SOLUSI)
+      - name: Sync GKI Source
+        run: |
+          mkdir -p workspace
+          cd workspace
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android12-5.10 --depth=1
+          repo sync -c -j$(nproc) --no-tags --no-clone-bundle
+          
+          # SOLUSI UTAMA: Hapus folder .repo setelah sync selesai. 
+          # Ini akan langsung melegakan ruang penyimpanan sebesar 15GB - 20GB.
+          echo "=== Ukuran penyimpanan SEBELUM menghapus .repo ==="
+          df -h .
+          rm -rf .repo
+          echo "=== Ukuran penyimpanan SETELAH menghapus .repo ==="
+          df -h .
+
+      # Langkah 5: Memasang KernelSU Next versi Terbaru
+      - name: Integrate KernelSU Next
+        run: |
+          cd workspace/common
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
+
+      # Langkah 6: Download & Patching SUSFS v2.1.0
+      - name: 📥 Clone SUSFS v2.1.0 Source (Khusus 5.10)
+        run: |
+          # Mengambil branch gki-android12-5.10 dari GitLab simonpunk
+          git clone --depth=1 -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
+
+      - name: 🛠️ Patch SUSFS ke KernelSU-Next
+        run: |
+          cd kernel_workspace
+          
+          # Setup script KSU-Next umumnya membuat folder 'KernelSU-Next' (bukan 'KernelSU')
+          # Salin patch SUSFS ke dalam direktori KernelSU-Next
+          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU-Next/
+          
+          cd KernelSU-Next
+          patch -p1 < 10_enable_susfs_for_ksu.patch || { echo "Gagal patch KernelSU-Next"; exit 1; }
+          echo "Patch KernelSU-Next untuk SUSFS Berhasil!"
+
+      - name: 🛠️ Patch SUSFS ke Kernel 5.10
+        run: |
+          cd kernel_workspace
+          
+          # 1. Salin file inti SUSFS ke tree Kernel
+          cp ../susfs4ksu/kernel_patches/fs/susfs.c fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
+          
+          # 2. Salin patch utama untuk Kernel 5.10
+          # Perhatikan penamaan patch gki-android12-5.10
+          PATCH_FILE="50_add_susfs_in_kernel-gki-android12-5.10.patch"
+          cp "../susfs4ksu/kernel_patches/$PATCH_FILE" .
+          
+          # 3. Eksekusi Patching
+          patch -p1 < $PATCH_FILE || { echo "Gagal patch Kernel Source 5.10"; exit 1; }
+          echo "Patching SUSFS v2.1.0 ke Kernel 5.10 Berhasil!"
+          
+      # Langkah 7: Modifikasi gki_defconfig (KSU, SUSFS & Identitas Kernel)
+      - name: Update Defconfig
+        run: |
+          cd workspace/common
+          
+          echo 'CONFIG_LOCALVERSION="-Ronin-Kernel"' >> arch/arm64/configs/gki_defconfig
+          
+          cat <<EOF >> arch/arm64/configs/gki_defconfig
+          CONFIG_KSU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          EOF
+
+      # Langkah 8: Proses Kompilasi Kernel (Build)
+      - name: Build Kernel
+        run: |
+          cd workspace
+          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
+
+      # Langkah 9: Membungkus kernel menjadi Flashable Zip menggunakan AnyKernel3
+      - name: Package AnyKernel3 (Flashable Zip)
+        run: |
+          cd workspace
+          git clone https://github.com/osm0sis/AnyKernel3.git
+          cd AnyKernel3
+          rm -rf .git
+          
+          sed -i 's/kernel.string=.*/kernel.string=Ronin Kernel GKI 12/g' anykernel.sh
+          cp ../out/android12-5.10/dist/Image .
+          zip -r9 "../Ronin-Kernel-GKI-12-5.10-KSU-Next-SUSFS.zip" *
+
+      # Langkah 10: Mengunggah hasil build (boot.img & Flashable Zip)
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ronin-Kernel-Android12-5.10
+          path: |
+            workspace/out/android12-5.10/dist/boot.img
+            workspace/Ronin-Kernel-GKI-12-5.10-KSU-Next-SUSFS.zip
