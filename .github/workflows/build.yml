@@ -1,4 +1,4 @@
-name: Build Ronin Kernel GKI 12 (5.10) KSU + SUSFS (Taro)
+name: Build Ronin Kernel Android 12-5.10 (Marble/Ingres)
 
 on:
   workflow_dispatch:
@@ -7,7 +7,6 @@ jobs:
   build-kernel:
     runs-on: ubuntu-latest
     steps:
-      # Langkah 1: Memaksimalkan penyimpanan server
       - name: Maximize Build Space
         uses: easimon/maximize-build-space@master
         with:
@@ -19,7 +18,6 @@ jobs:
           remove-codeql: 'true'
           remove-docker-images: 'true'
 
-      # Langkah 2: Instalasi package pendukung di server
       - name: Install Dependencies
         run: |
           sudo apt-get update
@@ -29,84 +27,36 @@ jobs:
           chmod a+x ~/bin/repo
           echo "~/bin" >> $GITHUB_PATH
 
-      # Langkah 3: Konfigurasi Git
-      - name: Configure Git
-        run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-
-      # Langkah 4: Sinkronisasi Source Code Kernel GKI + Pembersihan .repo
       - name: Sync GKI Source
         run: |
           mkdir -p ${{ github.workspace }}/workspace
           cd ${{ github.workspace }}/workspace
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android12-5.10 --depth=1
           repo sync -c -j$(nproc) --no-tags --no-clone-bundle
-          
-          echo "=== Ukuran penyimpanan SEBELUM menghapus .repo ==="
-          df -h .
           rm -rf .repo
-          echo "=== Ukuran penyimpanan SETELAH menghapus .repo ==="
-          df -h .
 
-      # Langkah 5: Memasang KernelSU Official & Checkout ke v0.9.5 (KUNCI PERBAIKAN)
-      - name: Integrate Official KernelSU
+      - name: Integrate KernelSU & SUSFS
         run: |
           cd ${{ github.workspace }}/workspace/common
-          # Setup KernelSU dari branch main agar terinjeksi ke Makefile & Kconfig
+          # Instal KernelSU
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # PENTING: Mundurkan source KernelSU ke v0.9.5 agar patch SUSFS bisa masuk
-          cd KernelSU
-          git fetch --tags
-          git checkout v0.9.5
-          echo "KernelSU berhasil di-checkout ke versi v0.9.5"
+          # Clone SUSFS
+          git clone --depth=1 -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git ../susfs4ksu
+          
+          # Patch KernelSU
+          cp ../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU/
+          cd KernelSU && patch -p1 < 10_enable_susfs_for_ksu.patch && cd ..
+          
+          # Patch Kernel Source
+          cp ../susfs4ksu/kernel_patches/fs/susfs.c fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
+          patch -p1 < ../susfs4ksu/kernel_patches/50_add_susfs_in_kernel-gki-android12-5.10.patch
 
-      # Langkah 6.1: Download SUSFS v2.1.0 Source (Khusus 5.10)
-      - name: 📥 Clone SUSFS v2.1.0 Source
-        run: |
-          cd ${{ github.workspace }}
-          git clone --depth=1 -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu.git susfs4ksu
-
-      # Langkah 6.2: Patch SUSFS ke KernelSU (Ditambah --fuzz=3)
-      - name: 🛠️ Patch SUSFS ke KernelSU
-        run: |
-          cd ${{ github.workspace }}/workspace/common/KernelSU
-          cp ${{ github.workspace }}/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
-          
-          # Menggunakan --fuzz=3 agar toleran terhadap offset baris kecil
-          patch -p1 --fuzz=3 < 10_enable_susfs_for_ksu.patch || { 
-            echo "❌ Gagal patch KernelSU!";
-            echo "Log error (reject):";
-            cat *.rej || true;
-            exit 1; 
-          }
-          echo "✅ Patch KernelSU untuk SUSFS Berhasil!"
-
-      # Langkah 6.3: Patch SUSFS ke Kernel 5.10
-      - name: 🛠️ Patch SUSFS ke Kernel 5.10
-        run: |
-          cd ${{ github.workspace }}/workspace/common
-          
-          # Salin file inti SUSFS ke tree Kernel
-          cp ${{ github.workspace }}/susfs4ksu/kernel_patches/fs/susfs.c fs/
-          cp ${{ github.workspace }}/susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
-          
-          # Salin patch utama untuk Kernel 5.10
-          PATCH_FILE="50_add_susfs_in_kernel-gki-android12-5.10.patch"
-          cp "${{ github.workspace }}/susfs4ksu/kernel_patches/$PATCH_FILE" .
-          
-          # Eksekusi Patching
-          patch -p1 --fuzz=3 < $PATCH_FILE || { echo "❌ Gagal patch Kernel Source 5.10"; exit 1; }
-          echo "✅ Patching SUSFS v2.1.0 ke Kernel 5.10 Berhasil!"
-          
-      # Langkah 7: Modifikasi gki_defconfig (KSU, SUSFS & Identitas Taro)
       - name: Update Defconfig
         run: |
           cd ${{ github.workspace }}/workspace/common
-          
-          echo 'CONFIG_LOCALVERSION="-Ronin-Kernel-Taro"' >> arch/arm64/configs/gki_defconfig
-          
+          echo 'CONFIG_LOCALVERSION="-Ronin-Kernel-MultiDevice"' >> arch/arm64/configs/gki_defconfig
           cat <<EOF >> arch/arm64/configs/gki_defconfig
           CONFIG_KSU=y
           CONFIG_KSU_SUSFS=y
@@ -121,37 +71,29 @@ jobs:
           CONFIG_KSU_SUSFS_ENABLE_LOG=y
           EOF
 
-      # Langkah 8: Proses Kompilasi Kernel GKI (Aarch64)
       - name: Build Kernel
         run: |
           cd ${{ github.workspace }}/workspace
           LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
 
-      # Langkah 9: Membungkus kernel menjadi Flashable Zip (Taro Configured)
-      - name: Package AnyKernel3 (Flashable Zip)
+      - name: Package AnyKernel3
         run: |
           cd ${{ github.workspace }}/workspace
           git clone https://github.com/osm0sis/AnyKernel3.git
           cd AnyKernel3
           rm -rf .git
           
-          # Optimasi khusus perangkat berchipset Taro (SD 8 Gen 1)
-          sed -i 's/kernel.string=.*/kernel.string=Ronin Kernel GKI 12 (Taro) KSU Official + SUSFS/g' anykernel.sh
-          sed -i 's/device.name1=.*/device.name1=taro/g' anykernel.sh
-          sed -i 's/device.name2=.*/device.name2=waipio/g' anykernel.sh
-          sed -i 's/device.name3=.*/device.name3=cape/g' anykernel.sh
-          sed -i 's/device.name4=.*/device.name4=diwali/g' anykernel.sh
+          # Konfigurasi untuk Marble dan Ingres
+          sed -i 's/kernel.string=.*/kernel.string=Ronin Kernel for Marble\/Ingres/g' anykernel.sh
+          sed -i 's/device.name1=.*/device.name1=marble/g' anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=ingres/g' anykernel.sh
           sed -i 's/block=.*/block=auto/g' anykernel.sh
-          sed -i 's/is_slot_device=.*/is_slot_device=auto/g' anykernel.sh
           
           cp ../out/android12-5.10/dist/Image .
-          zip -r9 "../Ronin-Kernel-Taro-GKI-12-5.10-KSU-SUSFS.zip" *
+          zip -r9 "../Ronin-Kernel-Marble-Ingres.zip" *
 
-      # Langkah 10: Mengunggah hasil build
-      - name: Upload Build Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Ronin-Kernel-Taro-Android12-5.10
-          path: |
-            ${{ github.workspace }}/workspace/out/android12-5.10/dist/boot.img
-            ${{ github.workspace }}/workspace/Ronin-Kernel-Taro-GKI-12-5.10-KSU-SUSFS.zip
+          name: Ronin-Kernel-Marble-Ingres
+          path: workspace/Ronin-Kernel-Marble-Ingres.zip
