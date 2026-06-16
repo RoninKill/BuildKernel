@@ -182,9 +182,18 @@ jobs:
             ${AK3_REPO} \
             AnyKernel3
 
-      - name: Copy Kernel Image
+      - name: Copy and Compress Kernel Image to 7z
         run: |
+          # 1. Salin file kernel mentah ke folder AnyKernel3
           cp kernel/${IMAGE_PATH} AnyKernel3/
+          
+          cd AnyKernel3
+          
+          # 2. Ambil nama file asli (misal: Image atau Image.gz)
+          ORIGINAL_FILE=$(basename ${IMAGE_PATH})
+          
+          # 3. Kompres file tersebut menjadi image.7z
+          7z a image.7z $ORIGINAL_FILE
 
       - name: Remove Git Metadata
         run: |
