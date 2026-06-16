@@ -178,6 +178,7 @@ jobs:
         run: |
           git clone \
             --depth=1 \
+            -b ${AK3_BRANCH} \
             ${AK3_REPO} \
             AnyKernel3
 
