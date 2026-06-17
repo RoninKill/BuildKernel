@@ -10,8 +10,7 @@ env:
   DEFCONFIG: vendor/marble_defconfig
 
   # Konfigurasi ReSukiSU & SUSFS
-  # GANTI URL_RESUKISU_DISINI dengan link repository ReSukiSU yang Anda gunakan
-  RESUKISU_REPO: https://github.com/ReSukiSU/ReSukiSU.git 
+  # GANTI URL_RESUKISU_DISINI dengan link repository ReSukiSU yang Anda gunakan 
   RESUKISU_BRANCH: main
   SUSFS_REPO: https://gitlab.com/simonpunk/susfs4ksu.git
   SUSFS_BRANCH: gki-android12-5.10
@@ -43,8 +42,8 @@ jobs:
     - name: Clone ReSukiSU & SUSFS
       run: |
         cd kernel
-        echo "Mengunduh ReSukiSU..."
-        git clone --depth=1 -b ${{ env.RESUKISU_BRANCH }} ${{ env.RESUKISU_REPO }} KernelSU
+        echo "--- Mengunduh dan Memasang ReSukiSU ---"
+          curl -ls https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh | bash -s ${RESUKISU_BRANCH}
         
         echo "Mengunduh SUSFS..."
         git clone --depth=1 -b ${{ env.SUSFS_BRANCH }} ${{ env.SUSFS_REPO }} susfs
