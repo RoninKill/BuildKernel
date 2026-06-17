@@ -52,13 +52,14 @@ jobs:
       run: |
         cd kernel
         
-        # 1. Integrasi file header dan source SUSFS ke Kernel (Gunakan -r untuk memastikan subdirektori terbawa)
-        cp -r susfs/kernel_patches/fs/* fs/
-        cp -r susfs/kernel_patches/include/linux/* include/linux/
-        
-        # 2. Patch Kernel utama
-        echo "Menerapkan Patch SUSFS ke Kernel..."
-        patch -p1 < susfs/kernel_patches/5.10/50_recipe_susfs.patch || echo "Peringatan: Ada konflik minor di Kernel, melanjutkan..."
+        echo "--- Menyalin file susfs ---"
+          # Menggunakan wildcard (*) agar tidak error jika ada file spesifik yang absen di branch ini
+          cp ../susfs/kernel_patches/fs/* fs/
+          cp ../susfs/kernel_patches/include/linux/* include/linux/
+
+          echo "--- Menerapkan Patch ke Kernel source ---"
+          # Menyesuaikan nama patch dengan format yang ada di repositori susfs4ksu untuk branch 5.10
+          patch -p1 < ../susfs/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch || echo "Peringatan: Beberapa patch kernel mungkin perlu penyesuaian."
 
     - name: Konfigurasi Defconfig dan Makefile
       run: |
