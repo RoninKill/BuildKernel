@@ -106,6 +106,15 @@ jobs:
       - name: Validate inputs
         run: bash scripts/validate-inputs.sh
 
+      - name: Create 16G Swap
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 16G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - name: Checkout kernel source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
