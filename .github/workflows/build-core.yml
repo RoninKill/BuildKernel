@@ -94,6 +94,14 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          
+      - name: Checkout AnyKernel3 packer
+        uses: actions/checkout@v5
+        with:
+          repository: Guxin12/android_kernel_xiaomi_marble
+          ref: Anykernel3
+          fetch-depth: 1
+          path: anykernel      
 
       - name: Validate builder policy
         if: ${{ inputs.run_policy_tests }}
