@@ -149,7 +149,7 @@ jobs:
       run_policy_tests: false
       publish_step_summary: false
          
-    name: Package AK3
+   -name: Package AK3
 run: |
           ZIP_NAME="${{ matrix.variant.name }}-marble-ak3.zip"
 
