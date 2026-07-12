@@ -222,38 +222,23 @@ jobs:
 
           echo "=== DONE ==="
           cd ..
+          
+          - name: Upload artifact
+      uses: actions/upload-artifact@v6
+      with:
+           name: ${{ matrix.variant.name }}-marble-ak3
+         path: ${{ matrix.variant.name }}-marble-ak3.zip
 
   release:
-    name: Create ZIP-only draft release
-    needs: [build, aggregate-summary]
-    if: ${{ inputs.create_draft_release == true && needs.build.result == 'success' && needs.aggregate-summary.result == 'success' }}
+    needs: build
     runs-on: ubuntu-24.04
     permissions:
-      actions: read
       contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Checkout builder
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          persist-credentials: false
-
-      - name: Download matrix flash artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: marble-flash-*-r${{ github.run_number }}
-          path: matrix-artifacts
-          merge-multiple: false
-
-      - name: Verify artifacts and prepare release
-        env:
-          BUILD_SCOPE: ${{ inputs.build_scope }}
-          MATRIX_ARTIFACTS_DIR: matrix-artifacts
-          MATRIX_SUMMARY: matrix-summary.md
-          RELEASE_ASSETS_FILE: release-assets.txt
-          SOURCE_RUN_NUMBER: ${{ github.run_number }}
-        run: bash scripts/prepare-promoted-release.sh
+          path: release-artifacts
 
       - name: Create ZIP-only draft release
         run: |
