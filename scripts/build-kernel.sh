@@ -88,6 +88,18 @@ fi
 image_size="$(stat -c%s "${image_path}")"
 if [[ "${image_size}" -lt 5000000 ]]; then
   echo "::error::Built Image is unexpectedly small: ${image_size} bytes"
+if [ -f kernel/out/arch/arm64/boot/Image ]; then
+  cp kernel/out/arch/arm64/boot/Image anykernel/Image
+  echo "? Copied Image to anykernel/"
+  echo "   Image size: $(stat -c%s anykernel/Image) bytes"
+
+  cd anykernel
+ # 在 anykernel/ 目录下压缩，7z 内部路径就是纯 "Image"
+  7z a -mx=9 Image.7z Image
+
+            # 验证 7z 内部结构
+  echo "=== 7z internal structure ==="
+  7z l Image.7z
   exit 1
 fi
 
@@ -100,19 +112,7 @@ for file in System.map vmlinux; do
   if [[ -s "${OUT_DIR}/${file}" ]]; then
     cp "${OUT_DIR}/${file}" "${RELEASE_DIR}/${file}"
   fi
-if [ -f kernel/out/arch/arm64/boot/Image ]; then
- cp kernel/out/arch/arm64/boot/Image anykernel/Image
-    echo "? Copied Image to anykernel/"
-    echo "   Image size: $(stat -c%s anykernel/Image) bytes"
-
-     cd anykernel
-     # 在 anykernel/ 目录下压缩，7z 内部路径就是纯 "Image"
-     7z a -mx=9 Image.7z Image
-
-     # 验证 7z 内部结构
-     echo "=== 7z internal structure ==="
-     7z l Image.7z
-     done
+done
 
 if [[ "${BUILD_SCOPE}" == "full" ]]; then
   if find "${OUT_DIR}/arch/arm64/boot/dts" -name '*.dtb' -print -quit | grep -q .; then
