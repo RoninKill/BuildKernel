@@ -149,8 +149,8 @@ jobs:
       run_policy_tests: false
       publish_step_summary: false
          
-   -name: Package AK3
-run: |
+  - name: Package AK3
+  run: |
           ZIP_NAME="${{ matrix.variant.name }}-marble-ak3.zip"
 
           # ?? 关键修改：我们 cp Image 到 anykernel/ 目录，然后对其执行 7z 压缩
