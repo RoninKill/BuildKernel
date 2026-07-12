@@ -91,6 +91,14 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          
+      - name: Checkout AnyKernel3 packer
+        uses: actions/checkout@v5
+        with:
+          repository: Guxin12/android_kernel_xiaomi_marble
+          ref: Anykernel3
+          fetch-depth: 1
+          path: anykernel   
 
       - name: Validate builder policy
         run: |
@@ -140,36 +148,81 @@ jobs:
       artifact_label: ${{ matrix.label }}
       run_policy_tests: false
       publish_step_summary: false
+         
+    name: Package AK3
+run: |
+          ZIP_NAME="${{ matrix.variant.name }}-marble-ak3.zip"
 
-  aggregate-summary:
-    name: Generate combined matrix summary
-    needs: build
-    if: ${{ always() }}
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - name: Checkout builder
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
+          # ?? 关键修改：我们 cp Image 到 anykernel/ 目录，然后对其执行 7z 压缩
+          # 这样 7z 内部路径就是纯 "Image"
+          # anykernel.sh 用 7za x 解压到 ${home}/ 时，文件会落到 ${home}/Image
+          # 之前的问题是 7z 打包时有路径前缀，导致解压路径错误
 
-      - name: Download matrix flash artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: marble-flash-*-r${{ github.run_number }}
-          path: matrix-artifacts
-          merge-multiple: false
+          if [ -f kernel/out/arch/arm64/boot/Image ]; then
+            cp kernel/out/arch/arm64/boot/Image anykernel/Image
+            echo "? Copied Image to anykernel/"
+            echo "   Image size: $(stat -c%s anykernel/Image) bytes"
 
-      - name: Generate combined matrix summary
-        env:
-          BUILD_SCOPE: ${{ inputs.build_scope }}
-          MATRIX_ARTIFACTS_DIR: matrix-artifacts
-          MATRIX_SUMMARY: matrix-summary.md
-        run: |
-          bash scripts/generate-matrix-summary.sh
-          cat matrix-summary.md >> "$GITHUB_STEP_SUMMARY"
+            cd anykernel
+            # 在 anykernel/ 目录下压缩，7z 内部路径就是纯 "Image"
+            7z a -mx=9 Image.7z Image
+
+            # 验证 7z 内部结构
+            echo "=== 7z internal structure ==="
+            7z l Image.7z
+
+            # 模拟 anykernel.sh 的解压逻辑，验证结构
+            mkdir -p /tmp/7z_verify
+            7z x Image.7z -o/tmp/7z_verify -y
+            echo "=== Extracted file ==="
+            ls -la /tmp/7z_verify/
+            if [ -f /tmp/7z_verify/Image ]; then
+              EXTRACTED_SIZE=$(stat -c%s /tmp/7z_verify/Image)
+              echo "? Internal path correct: Image ($EXTRACTED_SIZE bytes)"
+              if [ "$EXTRACTED_SIZE" -lt 1000000 ]; then
+                echo "? ERROR: Image too small!"
+                exit 1
+              fi
+            else
+              echo "? ERROR: File not at /tmp/7z_verify/Image"
+              find /tmp/7z_verify -type f
+              exit 1
+            fi
+            rm -rf /tmp/7z_verify
+
+            # 删除原始 Image，zip 里只需要 Image.7z
+            rm Image
+
+            echo "? Image.7z created: $(stat -c%s Image.7z) bytes"
+            cd ..
+          else
+            echo "? No kernel Image found!"
+            exit 1
+          fi
+
+          # 验证 AnyKernel3 仓库中预置的其他文件
+          echo "=== Checking required pre-built files in AK3 repo ==="
+          for f in _modules_hyperos.7z _dtb.7z anykernel.sh tools/ak3-core.sh; do
+             if [ -f "anykernel/$f" ]; then
+               echo "? Found: $f"
+             else
+               echo "? MISSING: $f"
+             fi
+          done
+
+          # 打包
+          cd anykernel
+          zip -r9 "../$ZIP_NAME" . -x "'.git?*" "*.git" "README*" "*placeholder*"
+
+          echo "=== Zip file created ==="
+          ls -lh "../$ZIP_NAME"
+
+          # ?? 最终验证
+          echo "=== Verifying zip contents ==="
+          unzip -l "../$ZIP_NAME" | grep -E "Image\.7z|_modules_hyperos|_dtb\.7z|anykernel\.sh|update-binary|ak3-core"
+
+          echo "=== DONE ==="
+          cd ..
 
   release:
     name: Create ZIP-only draft release
