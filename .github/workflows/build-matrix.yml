@@ -96,7 +96,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: Guxin12/android_kernel_xiaomi_marble
-          ref: Anykernel3
+          ref: a983652ab0bdd80290e9467a1cb75e89f7389e6c
           fetch-depth: 1
           path: anykernel
           
